@@ -75,3 +75,9 @@ TLS در Railway Edge انجام می‌شود و ارتباط عمومی کلا
 ## محدودیت
 
 این پروژه Xray-core و XHTTP نیست. Transport آن VLESS over WebSocket است و relay خروجی TCP انجام می‌دهد.
+
+
+## Troubleshooting v4.6
+
+برای فعال بودن لاگ تشخیصی WebSocket/VLESS، مقدار `VLESS_DEBUG=1` را در Railway Variables قرار دهید.
+در این حالت هنگام اتصال باید لاگ‌هایی مانند `HTTP upgrade`، `WS connection`، `VLESS parsed` و `UPSTREAM connected` دیده شوند.
