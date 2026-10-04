@@ -11,6 +11,8 @@ const CONNECT_TIMEOUT = 10000;
 const ALLOWED_PORTS = new Set([80, 443]);
 const WS_HIGH_WATER = 8 * 1024 * 1024;
 const WS_LOW_WATER = 2 * 1024 * 1024;
+const DEBUG = process.env.VLESS_DEBUG !== '0';
+function log(...args) { if (DEBUG) console.log('[vless]', ...args); }
 
 function parseUUID(s) {
   const h = s.replace(/-/g, '');
@@ -81,6 +83,10 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ ok: false, error: 'not_found' }));
 });
 
+server.on('upgrade', (req) => {
+  log('HTTP upgrade', req.method, req.url, 'upgrade=', req.headers.upgrade || '-');
+});
+
 const wss = new WebSocketServer({
   server,
   path: '/api/ws',
@@ -88,7 +94,8 @@ const wss = new WebSocketServer({
   perMessageDeflate: false,
 });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  log('WS connection', req.socket.remoteAddress || '-', req.url || '-');
   let socket = null;
   let parsed = null;
   let headerBuf = Buffer.alloc(0);
@@ -102,6 +109,7 @@ wss.on('connection', (ws) => {
 
   const fail = (reason) => {
     if (closed) return;
+    log('FAIL', reason, parsed ? `${parsed.host}:${parsed.port}` : 'before-parse');
     closed = true;
     if (drainTimer) clearInterval(drainTimer);
     pendingUpstream = [];
@@ -125,6 +133,7 @@ wss.on('connection', (ws) => {
 
   const startConnect = async (info) => {
     if (connecting || closed) return;
+    log('CONNECT upstream', `${info.host}:${info.port}`);
     connecting = true;
     const generation = ++connectGeneration;
     let addrs;
@@ -165,6 +174,7 @@ wss.on('connection', (ws) => {
         s.setTimeout(0);
         connected = true;
         connecting = false;
+        log('UPSTREAM connected', `${addr.address}:${info.port}`);
         try {
           if (ws.readyState === ws.OPEN) ws.send(responseHeader(0));
         } catch {
@@ -237,6 +247,7 @@ wss.on('connection', (ws) => {
   ws.on('message', (data) => {
     if (closed) return;
     const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    log('WS message', chunk.length, 'bytes', parsed ? 'data' : 'handshake');
 
     if (!parsed) {
       headerBuf = Buffer.concat([headerBuf, chunk]);
@@ -245,6 +256,7 @@ wss.on('connection', (ws) => {
       if (r.needMore) return;
       if (r.error) return fail(r.error);
       parsed = r;
+      log('VLESS parsed', `${r.host}:${r.port}`, 'body=', r.body.length);
       headerBuf = Buffer.alloc(0);
       if (r.body.length) {
         pendingUpstream.push(r.body);
@@ -260,16 +272,20 @@ wss.on('connection', (ws) => {
     flushPending();
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
+    log('WS close', code, reason ? reason.toString() : '');
     closed = true;
     if (drainTimer) clearInterval(drainTimer);
     if (socket) socket.destroy();
   });
-  ws.on('error', () => {
+  ws.on('error', (err) => {
+    log('WS error', err && (err.message || err));
     closed = true;
     if (drainTimer) clearInterval(drainTimer);
     if (socket) socket.destroy();
   });
 });
+
+wss.on('error', (err) => log('WSS error', err && (err.message || err)));
 
 module.exports = server;
